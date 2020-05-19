@@ -39,5 +39,5 @@ class FigmentModel(nn.Module):
 
         all_embs = torch.cat([ent_emb, sub_words_emb, clr_conv_outs, tc], dim=1)
         out = torch.relu(self.linear1(all_embs))
-        out = torch.sigmoid(self.linear2(out))
+        out = self.linear2(out)
         return out

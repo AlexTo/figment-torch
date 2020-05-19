@@ -73,7 +73,7 @@ def train(args, device):
         "learning_rate": args.lr,
         "weight_decay": args.weight_decay
     }
-    neptune.create_experiment(name='Try BCELoss',
+    neptune.create_experiment(name='Switch back to MultiLabelSoftMarginLoss',
                               params=params)
     train_ds = FigmentDataset(args.target_file, args.ent_emb_file, args.letters_file, args.sub_words_file,
                               args.tc_file, split="train")
@@ -87,7 +87,7 @@ def train(args, device):
                          args.clr_emb_dim).to(device)
 
     optimizer = optim.SGD(model.parameters(), lr=args.lr, weight_decay=args.weight_decay, momentum=args.momentum)
-    criterion = nn.BCELoss()
+    criterion = nn.MultiLabelSoftMarginLoss()
     bar = trange(0, args.epochs, desc="Training")
     dev_loss = np.nan
     for _ in bar:
@@ -100,7 +100,6 @@ def train(args, device):
             outputs = model(ent_emb, letters, sub_words, tc)
             loss = criterion(outputs, targets)
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
             optimizer.step()
             bar.set_postfix({"train_loss": f"{loss:.4f}", "dev_loss": f"{dev_loss:.4f}"})
             neptune.log_metric("train_loss", loss)
