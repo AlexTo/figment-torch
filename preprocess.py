@@ -3,8 +3,6 @@ import pickle
 import h5py
 import torch
 import yaml
-from gensim.scripts.glove2word2vec import glove2word2vec
-
 from src.InferSent import InferSent
 
 

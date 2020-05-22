@@ -1,5 +1,6 @@
 import h5py
 import torch
+from pygcn import GraphConvolution
 from torch import nn
 
 from src.GAT import GAT
@@ -9,12 +10,12 @@ class FigmentModel(nn.Module):
     def __init__(self, sub_words_emb_file, sub_words_num_emb, sub_words_emb_dim, clr_num_emb,
                  clr_emb_dim, type_adj, type_embeddings, n_units, n_heads, dropout, attn_dropout,
                  instance_normalization, diag, clr_max_length=30, clr_out_channels=50, clr_kernels=range(7),
-                 all_embs_dim=852, hidden_dim=900,
-                 output_dim=102, w=0.08):
+                 all_embs_dim=852, hidden_dim=900, type_embedding_dim=4096, gcn_hidden_dim=2048, output_dim=102,
+                 w=0.08):
         super(FigmentModel, self).__init__()
         sub_words_emb = h5py.File(sub_words_emb_file, 'r')
         sub_words_emb = sub_words_emb['vectors']
-
+        self.dropout = dropout
         self.type_adj = type_adj
         self.type_embeddings = type_embeddings
         self.clr_kernels = clr_kernels
@@ -36,7 +37,9 @@ class FigmentModel(nn.Module):
         self.linear1.weight.data.uniform_(-w / 2, w / 2)
         self.linear1.bias.data.fill_(0)
 
-        self.gat = GAT(n_units, n_heads, dropout, attn_dropout, instance_normalization, diag)
+        # self.gat = GAT(n_units, n_heads, dropout, attn_dropout, instance_normalization, diag)
+        self.gc1 = GraphConvolution(type_embedding_dim, gcn_hidden_dim)
+        self.gc2 = GraphConvolution(gcn_hidden_dim, hidden_dim)
 
     def forward(self, ent_emb, letters, sub_words, tc):
         letters_emb = self.clr_emb(letters)
@@ -52,8 +55,12 @@ class FigmentModel(nn.Module):
         clr_conv_outs = torch.cat(clr_conv_outs, dim=1)
 
         all_embs = torch.cat([ent_emb, sub_words_emb, clr_conv_outs, tc], dim=1)
-        type_embs = self.gat(self.type_embeddings, self.type_adj)
-        out = self.linear1(all_embs)
+
+        type_embs = torch.relu(self.gc1(self.type_embeddings, self.type_adj))
+        type_embs = torch.dropout(type_embs, self.dropout, train=self.training)
+        type_embs = self.gc2(type_embs, self.type_adj)
+
+        out = torch.relu(self.linear1(all_embs))
 
         out = torch.mm(out, type_embs.T)
         out = torch.sigmoid(out)

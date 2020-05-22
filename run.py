@@ -29,7 +29,7 @@ def initialize():
     parser.add_argument("--diag", action="store_true")
     parser.add_argument("--hidden_units", type=str, default="4096,2048,900",
                         help="hidden units in each hidden layer(including in_dim and out_dim), split with comma")
-    parser.add_argument("--heads", type=str, default="2,2", help="heads in each gat layer, split with comma")
+    parser.add_argument("--heads", type=str, default="1,1", help="heads in each gat layer, split with comma")
     parser.add_argument("--instance_normalization", action="store_true", default=False,
                         help="enable instance normalization")
     parser.add_argument("--dropout", type=float, default=0.0, help="dropout rate for layers")
