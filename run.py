@@ -20,7 +20,7 @@ def initialize():
     parser.add_argument("--seed", type=int, default=23455, required=False)
     parser.add_argument("--batch_size", type=int, default=1000, required=False)
     parser.add_argument("--epochs", type=int, default=200, required=False)
-    parser.add_argument("--lr", type=float, default=0.00002)
+    parser.add_argument("--lr", type=float, default=0.00025)
     parser.add_argument("--momentum", type=float, default=0.9)
     parser.add_argument("--weight_decay", type=float, default=1e-06)
     parser.add_argument("--clip", type=float, default=1.0)
@@ -109,12 +109,13 @@ def train(args, device):
                          args.clr_emb_dim, type_adj, type_embeddings, n_units, n_heads, args.dropout, args.attn_dropout,
                          args.instance_normalization, args.diag).to(device)
 
-    if os.path.exists('output/model_0.0216.pt'):
-        model.load_state_dict(torch.load('output/model_0.0216.pt'))
+    # if os.path.exists('output/model_0.0216.pt'):
+    #    model.load_state_dict(torch.load('output/model_0.0216.pt'))
 
-    optimizer = optim.SGD(model.parameters(), lr=args.lr, weight_decay=args.weight_decay, momentum=args.momentum)
+    # optimizer = optim.RMSprop(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    # optimizer = optim.SGD(model.parameters(), lr=args.lr, weight_decay=args.weight_decay, momentum=args.momentum)
     # optimizer = optim.Adagrad(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    # optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     criterion = nn.BCELoss()
     bar = trange(0, args.epochs, desc="Training")
     dev_loss = np.nan
@@ -168,9 +169,10 @@ def write_outputs(args, device, model_file, split='dev'):
     entities = entities[[0]]
     outputs = []
     with torch.no_grad():
-        for ent_emb, letters, sub_words, tc, _ in loader:
-            ent_emb, letters, sub_words, tc = ent_emb.to(device), letters.to(torch.int64).to(device), \
-                                              sub_words.to(torch.int64).to(device), tc.to(device)
+        for ent_emb, letters, sub_words, tc, targets in loader:
+            ent_emb, letters, sub_words, tc, targets = ent_emb.to(device), letters.to(torch.int64).to(device), \
+                                                       sub_words.to(torch.int64).to(device), tc.to(device), \
+                                                       targets.float().to(device)
             output = model(ent_emb, letters, sub_words, tc)
             outputs.append(output)
     outputs = torch.cat(outputs).cpu().numpy()
@@ -187,8 +189,8 @@ def main():
     if args.train:
         train(args, device)
     if args.test:
-        write_outputs(args, device, 'output/model_0.0216.pt', 'dev')
-        write_outputs(args, device, 'output/model_0.0216.pt', 'test')
+        write_outputs(args, device, 'output/model_0.0011.pt', 'dev')
+        write_outputs(args, device, 'output/model_0.0011.pt', 'test')
 
 
 if __name__ == '__main__':

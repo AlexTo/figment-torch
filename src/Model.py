@@ -3,15 +3,14 @@ import torch
 from pygcn import GraphConvolution
 from torch import nn
 from torch.nn import TransformerEncoderLayer, TransformerEncoder
-
-from src.GAT import GAT
+import torch.nn.functional as F
 
 
 class FigmentModel(nn.Module):
     def __init__(self, sub_words_emb_file, sub_words_num_emb, sub_words_emb_dim, clr_num_emb,
                  clr_emb_dim, type_adj, type_embeddings, n_units, n_heads, dropout, attn_dropout,
                  instance_normalization, diag, clr_max_length=30, clr_out_channels=50, clr_kernels=range(7),
-                 all_embs_dim=852, hidden_dim=900, type_embedding_dim=4096, gcn_hidden_dim=2048, output_dim=102,
+                 all_embs_dim=852, hidden_dim=512, type_embedding_dim=4096, gcn_hidden_dim=2048, output_dim=102,
                  w=0.08):
         super(FigmentModel, self).__init__()
         sub_words_emb = h5py.File(sub_words_emb_file, 'r')
@@ -19,6 +18,7 @@ class FigmentModel(nn.Module):
         self.dropout = dropout
         self.type_adj = type_adj
         self.type_embeddings = type_embeddings
+
         self.clr_kernels = clr_kernels
         self.sub_words_emb = nn.Embedding(num_embeddings=sub_words_num_emb, embedding_dim=sub_words_emb_dim)
         self.sub_words_emb.weight = nn.Parameter(torch.from_numpy(sub_words_emb.value))
@@ -34,27 +34,38 @@ class FigmentModel(nn.Module):
             conv.bias.data.fill_(0)
         self.clr_max_pools = nn.ModuleList([nn.MaxPool2d(kernel_size=(clr_max_length - k, 1)) for k in clr_kernels])
 
-        self.linear1 = nn.Linear(in_features=all_embs_dim, out_features=gcn_hidden_dim)
-        self.linear1.weight.data.uniform_(-w / 2, w / 2)
-        self.linear1.bias.data.fill_(0)
+        self.ent_linear = nn.Linear(in_features=sub_words_emb_dim, out_features=hidden_dim)
+        self.ent_linear.weight.data.uniform_(-w / 2, w / 2)
+        self.ent_linear.bias.data.fill_(0)
 
-        self.linear2 = nn.Linear(in_features=gcn_hidden_dim, out_features=type_embedding_dim)
-        self.linear2.weight.data.uniform_(-w / 2, w / 2)
-        self.linear2.bias.data.fill_(0)
+        self.swlr_linear = nn.Linear(in_features=sub_words_emb_dim, out_features=hidden_dim)
+        self.swlr_linear.weight.data.uniform_(-w / 2, w / 2)
+        self.swlr_linear.bias.data.fill_(0)
 
-        # self.lstm = nn.LSTM(input_size=1, hidden_size=1024, bidirectional=True, batch_first=True)
-        # encoder_layers = TransformerEncoderLayer(d_model=2048, nhead=2)
-        # self.transformer_encoder = TransformerEncoder(encoder_layers, 1)
+        self.tc_linear = nn.Linear(in_features=output_dim, out_features=hidden_dim)
+        self.tc_linear.weight.data.uniform_(-w / 2, w / 2)
+        self.tc_linear.bias.data.fill_(0)
 
-        # self.gat = GAT(n_units, n_heads, dropout, attn_dropout, instance_normalization, diag)
+        self.clr_linear = nn.Linear(in_features=(clr_out_channels * len(clr_kernels)), out_features=hidden_dim)
+        self.clr_linear.weight.data.uniform_(-w / 2, w / 2)
+        self.clr_linear.bias.data.fill_(0)
+
+        self.type_linear = nn.Linear(in_features=type_embedding_dim, out_features=hidden_dim)
+        self.type_linear.weight.data.uniform_(-w / 2, w / 2)
+        self.type_linear.bias.data.fill_(0)
+
         self.gc1 = GraphConvolution(type_embedding_dim, type_embedding_dim)
         self.gc2 = GraphConvolution(type_embedding_dim, type_embedding_dim)
 
-        # self.linear1 = nn.Linear(in_features=type_embedding_dim, out_features=all_embs_dim)
-        # self.linear1.weight.data.uniform_(-w / 2, w / 2)
-        # self.linear1.bias.data.fill_(0)
+        self.lstm = nn.LSTM(input_size=hidden_dim, hidden_size=hidden_dim)
+
+        encoder_layers = TransformerEncoderLayer(d_model=hidden_dim, nhead=8)
+        self.transformer_encoder = TransformerEncoder(encoder_layers, 2)
+
+        self.final_linear = nn.Linear(in_features=hidden_dim, out_features=output_dim)
 
     def forward(self, ent_emb, letters, sub_words, tc):
+
         letters_emb = self.clr_emb(letters)
         letters_emb = torch.unsqueeze(letters_emb, 1)
         sub_words_emb = self.sub_words_emb(sub_words).float()
@@ -68,18 +79,29 @@ class FigmentModel(nn.Module):
         clr_conv_outs = torch.cat(clr_conv_outs, dim=1)
 
         type_embs = self.gc1(self.type_embeddings, self.type_adj)
-        # type_embs = torch.dropout(type_embs, self.dropout, train=self.training)
+        type_embs = torch.dropout(type_embs, self.dropout, train=self.training)
         type_embs = self.gc2(type_embs, self.type_adj)  # 102 * 4096
+        # type_embs = torch.matmul(targets, type_embs)
 
+        ent_out = self.ent_linear(ent_emb)
+        ent_out = F.normalize(ent_out, p=2, dim=1)
 
-        all_embs = torch.cat([ent_emb, sub_words_emb, clr_conv_outs, tc], dim=1)
-        # out, _ = self.lstm(all_embs)
-        # out = self.transformer_encoder(out)
-        out = torch.relu(self.linear1(all_embs))  # 852 => 2048
-        out = torch.relu(self.linear2(out))  # 2048 => 4096
+        clr_out = self.clr_linear(clr_conv_outs)
+        clr_out = F.normalize(clr_out, p=2)
 
-        # out = out.mean(2)
-        out = torch.matmul(out, type_embs.T)
+        subwords_out = self.swlr_linear(sub_words_emb)
+        subwords_out = F.normalize(subwords_out, p=2, dim=1)
+
+        tc_out = self.tc_linear(tc)
+        tc_out = F.normalize(tc_out, p=2, dim=1)
+
+        type_out = self.type_linear(type_embs)
+        type_out = F.normalize(type_out, p=2, dim=1)
+
+        all_embs = torch.stack([ent_out, clr_out, subwords_out, tc_out], dim=1)
+        all_embs, _ = self.lstm(all_embs)
+        att_out = self.transformer_encoder(all_embs)
+        att_out = att_out[:, 0, :]
+        out = torch.matmul(att_out, type_out.T)
         out = torch.sigmoid(out)
-
         return out
