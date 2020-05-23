@@ -3,6 +3,8 @@ import pickle
 import h5py
 import torch
 import yaml
+import numpy as np
+import scipy.sparse as sp
 from src.InferSent import InferSent
 
 
@@ -43,7 +45,25 @@ def batched_adj_to_freq(adj):
     return torch.sum(adj, dim=0)
 
 
+def normalise(A, t=0.4):
+    # Thresholding
+    A = torch.div(A, torch.add(A.sum(0, keepdim=True), 1e-6))
+    A.masked_fill_(A < t, 0.0)
+    A.masked_fill_(A >= t, 1.0)
+    # Normalisation
+    A = torch.div(torch.mul(A, 0.25), torch.add(A.sum(0, keepdim=True), 1e-6))
+    # Add identity matrix
+    mask = torch.eye(A.shape[0]).bool()
+    A.masked_fill_(mask, 1.0)
+
+    D = torch.pow(A.sum(1).float(), -0.5)
+    D = torch.diag(D)
+    adj = torch.matmul(torch.matmul(A, D).t(), D)
+    return adj
+
+
 def process_type_embeddings(args, device):
+    c = 0.15
     targets = h5py.File(args.target_file, 'r')
 
     type_to_ix = yaml.load(targets['targets'].attrs['type_to_ix'])
@@ -54,11 +74,11 @@ def process_type_embeddings(args, device):
     targets_ds[targets_ds == 0] = -1
     type_adj = batched_target_to_adj(targets_ds)
     type_adj = batched_adj_to_freq(type_adj)
-    type_adj[type_adj > 0] = 1
-    type_adj = type_adj + torch.eye(type_adj.shape[0])
-    type_adj = type_adj.numpy()
-    with open('data/type_adj.pickle', 'wb') as f:
-        pickle.dump(type_adj, f)
+    type_adj = normalise(type_adj)
+    # type_adj = c * torch.inverse(torch.eye(type_adj.shape[0]) - (1 - c) * type_adj)
+
+    with open('data/type_adj.pickle', 'wb') as ta:
+        pickle.dump(type_adj.numpy(), ta)
 
     params_model = {'bsize': 64, 'word_emb_dim': 300, 'enc_lstm_dim': 2048,
                     'pool_type': 'max', 'dpout_model': 0.0, 'version': 1}
@@ -68,8 +88,8 @@ def process_type_embeddings(args, device):
 
     infer_sent.build_vocab(types, tokenize=True)
     type_embeddings = infer_sent.encode(types)
-    with open('data/type_embeddings.pickle', 'wb') as f:
-        pickle.dump(type_embeddings, f)
+    with open('data/type_embeddings.pickle', 'wb') as te:
+        pickle.dump(type_embeddings, te)
 
 
 def main():

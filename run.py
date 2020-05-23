@@ -20,7 +20,7 @@ def initialize():
     parser.add_argument("--seed", type=int, default=23455, required=False)
     parser.add_argument("--batch_size", type=int, default=1000, required=False)
     parser.add_argument("--epochs", type=int, default=200, required=False)
-    parser.add_argument("--lr", type=float, default=0.005)
+    parser.add_argument("--lr", type=float, default=0.00002)
     parser.add_argument("--momentum", type=float, default=0.9)
     parser.add_argument("--weight_decay", type=float, default=1e-06)
     parser.add_argument("--clip", type=float, default=1.0)
@@ -109,14 +109,16 @@ def train(args, device):
                          args.clr_emb_dim, type_adj, type_embeddings, n_units, n_heads, args.dropout, args.attn_dropout,
                          args.instance_normalization, args.diag).to(device)
 
-    if os.path.exists('output/model.pt'):
-        model.load_state_dict(torch.load('output/model.pt'))
+    if os.path.exists('output/model_0.0216.pt'):
+        model.load_state_dict(torch.load('output/model_0.0216.pt'))
 
-    # optimizer = optim.SGD(model.parameters(), lr=args.lr, weight_decay=args.weight_decay, momentum=args.momentum)
-    optimizer = optim.Adagrad(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    optimizer = optim.SGD(model.parameters(), lr=args.lr, weight_decay=args.weight_decay, momentum=args.momentum)
+    # optimizer = optim.Adagrad(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    # optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     criterion = nn.BCELoss()
     bar = trange(0, args.epochs, desc="Training")
     dev_loss = np.nan
+    best_dev_loss = 10
     for _ in bar:
         model.train()
         for ent_emb, letters, sub_words, tc, targets in train_loader:
@@ -131,22 +133,31 @@ def train(args, device):
             bar.set_postfix({"train_loss": f"{loss:.4f}", "dev_loss": f"{dev_loss:.4f}"})
             neptune.log_metric("train_loss", loss)
         dev_loss = evaluate(model, dev_loader, device, criterion)
+        if dev_loss < best_dev_loss:
+            best_dev_loss = dev_loss
+            if best_dev_loss < 0.023:
+                torch.save(model.state_dict(), f'output/model_{best_dev_loss:.4f}.pt')
         neptune.log_metric("dev_loss", dev_loss)
-    torch.save(model.state_dict(), 'output/model.pt')
 
 
-def write_outputs(args, device, split='dev'):
+def write_outputs(args, device, model_file, split='dev'):
+    n_units = [int(x) for x in args.hidden_units.strip().split(",")]
+    n_heads = [int(x) for x in args.heads.strip().split(",")]
+
     ds = FigmentDataset(args.target_file, args.ent_emb_file, args.letters_file, args.sub_words_file,
                         args.tc_file, split=split)
     loader = DataLoader(ds, batch_size=args.batch_size, shuffle=False, num_workers=1)
 
     with open(args.type_adj_file, 'rb') as f:
         type_adj = torch.tensor(pickle.load(f)).to_sparse().to(device)
+    with open(args.type_embeddings_file, 'rb') as f:
+        type_embeddings = torch.tensor(pickle.load(f)).to(device)
 
-    model = FigmentModel(args.infer_sent_file, args.sub_words_emb_file, args.sub_words_num_emb, args.sub_words_emb_dim,
-                         args.clr_num_emb, args.clr_emb_dim, type_adj).to(device)
+    model = FigmentModel(args.sub_words_emb_file, args.sub_words_num_emb, args.sub_words_emb_dim, args.clr_num_emb,
+                         args.clr_emb_dim, type_adj, type_embeddings, n_units, n_heads, args.dropout, args.attn_dropout,
+                         args.instance_normalization, args.diag).to(device)
 
-    model.load_state_dict(torch.load('output/model.pt'))
+    model.load_state_dict(torch.load(model_file))
 
     model.eval()
     if split == 'dev':
@@ -176,8 +187,8 @@ def main():
     if args.train:
         train(args, device)
     if args.test:
-        write_outputs(args, device, 'dev')
-        write_outputs(args, device, 'test')
+        write_outputs(args, device, 'output/model_0.0216.pt', 'dev')
+        write_outputs(args, device, 'output/model_0.0216.pt', 'test')
 
 
 if __name__ == '__main__':
