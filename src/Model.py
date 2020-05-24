@@ -79,7 +79,7 @@ class FigmentModel(nn.Module):
         clr_conv_outs = torch.cat(clr_conv_outs, dim=1)
 
         type_embs = self.gc1(self.type_embeddings, self.type_adj)
-        type_embs = torch.dropout(type_embs, self.dropout, train=self.training)
+        # type_embs = torch.dropout(type_embs, self.dropout, train=self.training)
         type_embs = self.gc2(type_embs, self.type_adj)  # 102 * 4096
         # type_embs = torch.matmul(targets, type_embs)
 
