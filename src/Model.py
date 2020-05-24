@@ -99,7 +99,7 @@ class FigmentModel(nn.Module):
         type_out = F.normalize(type_out, p=2, dim=1)
 
         all_embs = torch.stack([ent_out, clr_out, subwords_out, tc_out], dim=1)
-        all_embs, _ = self.lstm(all_embs)
+        # all_embs, _ = self.lstm(all_embs)
         att_out = self.transformer_encoder(all_embs)
         att_out = att_out[:, 0, :]
         out = torch.matmul(att_out, type_out.T)
