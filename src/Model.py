@@ -59,8 +59,8 @@ class FigmentModel(nn.Module):
 
         self.lstm = nn.LSTM(input_size=4, hidden_size=4, batch_first=True)
 
-        encoder_layers = TransformerEncoderLayer(d_model=hidden_dim, nhead=8)
-        self.transformer_encoder = TransformerEncoder(encoder_layers, 2)
+        encoder_layers = TransformerEncoderLayer(d_model=hidden_dim, nhead=4)
+        self.transformer_encoder = TransformerEncoder(encoder_layers, 4)
 
         self.final_linear = nn.Linear(in_features=hidden_dim, out_features=output_dim)
 
@@ -103,6 +103,7 @@ class FigmentModel(nn.Module):
         all_embs = all_embs.permute(0, 2, 1)
         att_out = self.transformer_encoder(all_embs)
         att_out = att_out[:, 0, :]
-        out = torch.matmul(att_out, type_out.T)
+        # out = torch.matmul(att_out, type_out.T)
+        out = self.final_linear(att_out)
         out = torch.sigmoid(out)
         return out

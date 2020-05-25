@@ -7,6 +7,7 @@ import torch
 import numpy as np
 import pandas as pd
 from torch import optim, nn
+from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
 from tqdm import trange
 
@@ -19,8 +20,8 @@ def initialize():
     parser.add_argument("--cuda", action="store_false")
     parser.add_argument("--seed", type=int, default=23455, required=False)
     parser.add_argument("--batch_size", type=int, default=1000, required=False)
-    parser.add_argument("--epochs", type=int, default=10, required=False)
-    parser.add_argument("--lr", type=float, default=0.00025)
+    parser.add_argument("--epochs", type=int, default=20, required=False)
+    parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--momentum", type=float, default=0.9)
     parser.add_argument("--weight_decay", type=float, default=1e-06)
     parser.add_argument("--clip", type=float, default=1.0)
@@ -109,17 +110,18 @@ def train(args, device):
                          args.clr_emb_dim, type_adj, type_embeddings, n_units, n_heads, args.dropout, args.attn_dropout,
                          args.instance_normalization, args.diag).to(device)
 
-    # if os.path.exists('output/model_0.0216.pt'):
-    #    model.load_state_dict(torch.load('output/model_0.0216.pt'))
+    if os.path.exists('output/model_0.0206.pt'):
+        model.load_state_dict(torch.load('output/model_0.0206.pt'))
 
     # optimizer = optim.RMSprop(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    # optimizer = optim.SGD(model.parameters(), lr=args.lr, weight_decay=args.weight_decay, momentum=args.momentum)
+    optimizer = optim.SGD(model.parameters(), lr=args.lr, weight_decay=args.weight_decay, momentum=args.momentum)
     # optimizer = optim.Adagrad(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    # optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     criterion = nn.BCELoss()
     bar = trange(0, args.epochs, desc="Training")
     dev_loss = np.nan
     best_dev_loss = 10
+    scheduler = StepLR(optimizer, step_size=5, gamma=0.2)
     for _ in bar:
         model.train()
         for ent_emb, letters, sub_words, tc, targets in train_loader:
@@ -131,9 +133,11 @@ def train(args, device):
             loss = criterion(outputs, targets)
             loss.backward()
             optimizer.step()
-            bar.set_postfix({"train_loss": f"{loss:.4f}", "dev_loss": f"{dev_loss:.4f}"})
+            bar.set_postfix(
+                {"train_loss": f"{loss:.4f}", "dev_loss": f"{dev_loss:.4f}", "lr": optimizer.param_groups[0]['lr']})
             neptune.log_metric("train_loss", loss)
         dev_loss = evaluate(model, dev_loader, device, criterion)
+        scheduler.step()
         if dev_loss < best_dev_loss:
             best_dev_loss = dev_loss
             if best_dev_loss < 0.023:
@@ -189,8 +193,8 @@ def main():
     if args.train:
         train(args, device)
     if args.test:
-        write_outputs(args, device, 'output/model_0.0011.pt', 'dev')
-        write_outputs(args, device, 'output/model_0.0011.pt', 'test')
+        write_outputs(args, device, 'output/model_0.0201.pt', 'dev')
+        write_outputs(args, device, 'output/model_0.0201.pt', 'test')
 
 
 if __name__ == '__main__':
