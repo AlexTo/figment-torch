@@ -5,13 +5,17 @@ import torch
 import yaml
 import numpy as np
 import scipy.sparse as sp
+from flair.data import Sentence
+
 from src.InferSent import InferSent
+from flair.embeddings import WordEmbeddings, DocumentRNNEmbeddings
 
 
 def initialize():
     parser = argparse.ArgumentParser()
     parser.add_argument("--cuda", action="store_false")
     parser.add_argument("--seed", type=int, default=23455, required=False)
+    parser.add_argument("--emb_type", type=str, default="flair", required=False)
     parser.add_argument("--target_file", type=str, default="data/_targets.h5py", required=False)
     parser.add_argument("--glove_file", type=str, default="data/glove.840B.300d.txt", required=False)
     parser.add_argument("--infer_sent_file", type=str, default="data/infersent1.pkl", required=False)
@@ -80,14 +84,25 @@ def process_type_embeddings(args, device):
     with open('data/type_adj.pickle', 'wb') as ta:
         pickle.dump(type_adj.numpy(), ta)
 
-    params_model = {'bsize': 64, 'word_emb_dim': 300, 'enc_lstm_dim': 2048,
-                    'pool_type': 'max', 'dpout_model': 0.0, 'version': 1}
-    infer_sent = InferSent(params_model).to(device)
-    infer_sent.load_state_dict(torch.load(args.infer_sent_file))
-    infer_sent.set_w2v_path(args.glove_file)
+    if args.emb_type == 'infer_sent':
+        params_model = {'bsize': 64, 'word_emb_dim': 300, 'enc_lstm_dim': 2048,
+                        'pool_type': 'max', 'dpout_model': 0.0, 'version': 1}
+        infer_sent = InferSent(params_model).to(device)
+        infer_sent.load_state_dict(torch.load(args.infer_sent_file))
+        infer_sent.set_w2v_path(args.glove_file)
 
-    infer_sent.build_vocab(types, tokenize=True)
-    type_embeddings = infer_sent.encode(types)
+        infer_sent.build_vocab(types, tokenize=True)
+        type_embeddings = infer_sent.encode(types)
+
+    if args.emb_type == 'flair':
+        glove_embedding = WordEmbeddings('glove')
+        document_embeddings = DocumentRNNEmbeddings([glove_embedding], hidden_size=512)
+        type_embeddings = []
+        for t in types:
+            sentence = Sentence(t)
+            document_embeddings.embed(sentence)
+            type_embeddings.append(sentence.get_embedding().cpu().detach().numpy())
+        type_embeddings = np.array(type_embeddings)
     with open('data/type_embeddings.pickle', 'wb') as te:
         pickle.dump(type_embeddings, te)
 

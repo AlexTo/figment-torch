@@ -10,7 +10,7 @@ class FigmentModel(nn.Module):
     def __init__(self, sub_words_emb_file, sub_words_num_emb, sub_words_emb_dim, clr_num_emb,
                  clr_emb_dim, type_adj, type_embeddings, n_units, n_heads, dropout, attn_dropout,
                  instance_normalization, diag, clr_max_length=30, clr_out_channels=50, clr_kernels=range(7),
-                 all_embs_dim=852, hidden_dim=1024, type_embedding_dim=4096, gcn_hidden_dim=2048, output_dim=102,
+                 all_embs_dim=852, hidden_dim=1024, type_embedding_dim=512, gcn_hidden_dim=2048, output_dim=102,
                  w=0.08):
         super(FigmentModel, self).__init__()
         sub_words_emb = h5py.File(sub_words_emb_file, 'r')

@@ -19,8 +19,8 @@ def initialize():
     parser.add_argument("--cuda", action="store_false")
     parser.add_argument("--seed", type=int, default=23455, required=False)
     parser.add_argument("--batch_size", type=int, default=1000, required=False)
-    parser.add_argument("--epochs", type=int, default=200, required=False)
-    parser.add_argument("--lr", type=float, default=0.0001)
+    parser.add_argument("--epochs", type=int, default=8, required=False)
+    parser.add_argument("--lr", type=float, default=0.00025)
     parser.add_argument("--momentum", type=float, default=0.9)
     parser.add_argument("--weight_decay", type=float, default=1e-06)
     parser.add_argument("--clip", type=float, default=1.0)
@@ -109,8 +109,8 @@ def train(args, device):
                          args.clr_emb_dim, type_adj, type_embeddings, n_units, n_heads, args.dropout, args.attn_dropout,
                          args.instance_normalization, args.diag).to(device)
 
-    if os.path.exists('output/model_0.0229.pt'):
-        model.load_state_dict(torch.load('output/model_0.0229.pt'))
+    if os.path.exists('output/model_last_epoch.pt'):
+        model.load_state_dict(torch.load('output/model_last_epoch.pt'))
 
     # optimizer = optim.RMSprop(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     optimizer = optim.SGD(model.parameters(), lr=args.lr, weight_decay=args.weight_decay, momentum=args.momentum)
@@ -139,6 +139,7 @@ def train(args, device):
             if best_dev_loss < 0.023:
                 torch.save(model.state_dict(), f'output/model_{best_dev_loss:.4f}.pt')
         neptune.log_metric("dev_loss", dev_loss)
+        torch.save(model.state_dict(), f'output/model_last_epoch.pt')
 
 
 def write_outputs(args, device, model_file, split='dev'):
