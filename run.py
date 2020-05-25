@@ -19,7 +19,7 @@ def initialize():
     parser.add_argument("--cuda", action="store_false")
     parser.add_argument("--seed", type=int, default=23455, required=False)
     parser.add_argument("--batch_size", type=int, default=1000, required=False)
-    parser.add_argument("--epochs", type=int, default=200, required=False)
+    parser.add_argument("--epochs", type=int, default=10, required=False)
     parser.add_argument("--lr", type=float, default=0.00025)
     parser.add_argument("--momentum", type=float, default=0.9)
     parser.add_argument("--weight_decay", type=float, default=1e-06)

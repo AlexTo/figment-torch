@@ -10,7 +10,7 @@ class FigmentModel(nn.Module):
     def __init__(self, sub_words_emb_file, sub_words_num_emb, sub_words_emb_dim, clr_num_emb,
                  clr_emb_dim, type_adj, type_embeddings, n_units, n_heads, dropout, attn_dropout,
                  instance_normalization, diag, clr_max_length=30, clr_out_channels=50, clr_kernels=range(7),
-                 all_embs_dim=852, hidden_dim=512, type_embedding_dim=4096, gcn_hidden_dim=2048, output_dim=102,
+                 all_embs_dim=852, hidden_dim=512, type_embedding_dim=512, gcn_hidden_dim=2048, output_dim=102,
                  w=0.08):
         super(FigmentModel, self).__init__()
         sub_words_emb = h5py.File(sub_words_emb_file, 'r')
@@ -57,7 +57,7 @@ class FigmentModel(nn.Module):
         self.gc1 = GraphConvolution(type_embedding_dim, type_embedding_dim)
         self.gc2 = GraphConvolution(type_embedding_dim, type_embedding_dim)
 
-        self.lstm = nn.LSTM(input_size=hidden_dim, hidden_size=hidden_dim)
+        self.lstm = nn.LSTM(input_size=4, hidden_size=4, batch_first=True)
 
         encoder_layers = TransformerEncoderLayer(d_model=hidden_dim, nhead=8)
         self.transformer_encoder = TransformerEncoder(encoder_layers, 2)
@@ -99,7 +99,8 @@ class FigmentModel(nn.Module):
         type_out = F.normalize(type_out, p=2, dim=1)
 
         all_embs = torch.stack([ent_out, clr_out, subwords_out, tc_out], dim=1)
-        all_embs, _ = self.lstm(all_embs)
+        all_embs, _ = self.lstm(all_embs.permute(0, 2, 1))
+        all_embs = all_embs.permute(0, 2, 1)
         att_out = self.transformer_encoder(all_embs)
         att_out = att_out[:, 0, :]
         out = torch.matmul(att_out, type_out.T)
