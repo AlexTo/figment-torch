@@ -34,21 +34,17 @@ class FigmentModel(nn.Module):
             conv.bias.data.fill_(0)
         self.clr_max_pools = nn.ModuleList([nn.MaxPool2d(kernel_size=(clr_max_length - k, 1)) for k in clr_kernels])
 
-        self.ent_linear = nn.Linear(in_features=sub_words_emb_dim, out_features=hidden_dim)
-        self.ent_linear.weight.data.uniform_(-w / 2, w / 2)
-        self.ent_linear.bias.data.fill_(0)
-
-        self.swlr_linear = nn.Linear(in_features=sub_words_emb_dim, out_features=hidden_dim)
-        self.swlr_linear.weight.data.uniform_(-w / 2, w / 2)
-        self.swlr_linear.bias.data.fill_(0)
-
-        self.tc_linear = nn.Linear(in_features=output_dim, out_features=hidden_dim)
-        self.tc_linear.weight.data.uniform_(-w / 2, w / 2)
-        self.tc_linear.bias.data.fill_(0)
-
         self.clr_linear = nn.Linear(in_features=(clr_out_channels * len(clr_kernels)), out_features=hidden_dim)
-        self.clr_linear.weight.data.uniform_(-w / 2, w / 2)
-        self.clr_linear.bias.data.fill_(0)
+        self.clr_lstm = nn.LSTM(input_size=1, hidden_size=1, batch_first=True)
+
+        self.ent_lstm = nn.LSTM(input_size=1, hidden_size=1, batch_first=True)
+        self.ent_linear = nn.Linear(in_features=sub_words_emb_dim, out_features=hidden_dim)
+
+        self.swlr_lstm = nn.LSTM(input_size=1, hidden_size=1, batch_first=True)
+        self.swlr_linear = nn.Linear(in_features=sub_words_emb_dim, out_features=hidden_dim)
+
+        self.tc_lstm = nn.LSTM(input_size=1, hidden_size=1, batch_first=True)
+        self.tc_linear = nn.Linear(in_features=output_dim, out_features=hidden_dim)
 
         self.type_linear = nn.Linear(in_features=type_embedding_dim, out_features=hidden_dim)
         self.type_linear.weight.data.uniform_(-w / 2, w / 2)
@@ -57,19 +53,17 @@ class FigmentModel(nn.Module):
         self.gc1 = GraphConvolution(type_embedding_dim, type_embedding_dim)
         self.gc2 = GraphConvolution(type_embedding_dim, type_embedding_dim)
 
-        self.lstm = nn.LSTM(input_size=4, hidden_size=4, batch_first=True)
-
-        encoder_layers = TransformerEncoderLayer(d_model=hidden_dim, nhead=8)
+        encoder_layers = TransformerEncoderLayer(d_model=hidden_dim, nhead=4)
         self.transformer_encoder = TransformerEncoder(encoder_layers, 2)
-
-        self.final_linear = nn.Linear(in_features=hidden_dim, out_features=output_dim)
 
     def forward(self, ent_emb, letters, sub_words, tc):
 
         letters_emb = self.clr_emb(letters)
-        letters_emb = torch.unsqueeze(letters_emb, 1)
+        letters_emb = letters_emb.unsqueeze(1)
+
         sub_words_emb = self.sub_words_emb(sub_words).float()
         sub_words_emb = torch.mean(sub_words_emb, dim=1)
+
         clr_conv_outs = []
         for k in self.clr_kernels:
             conv = self.clr_convs[k]
@@ -77,30 +71,29 @@ class FigmentModel(nn.Module):
             clr_out = torch.relu(max_pool(conv(letters_emb))).squeeze()
             clr_conv_outs.append(clr_out)
         clr_conv_outs = torch.cat(clr_conv_outs, dim=1)
+        clr_conv_outs = self.clr_linear(torch.tanh(clr_conv_outs))
+        clr_out, _ = self.clr_lstm(clr_conv_outs.unsqueeze(2))
+        clr_out = F.normalize(clr_out.squeeze(), p=2, dim=1)
 
         type_embs = self.gc1(self.type_embeddings, self.type_adj)
         # type_embs = torch.dropout(type_embs, self.dropout, train=self.training)
         type_embs = self.gc2(type_embs, self.type_adj)  # 102 * 4096
         # type_embs = torch.matmul(targets, type_embs)
+        type_out = F.normalize(type_embs, p=2, dim=1)
 
-        ent_out = self.ent_linear(ent_emb)
-        ent_out = F.normalize(ent_out, p=2, dim=1)
+        ent_out = self.ent_linear(torch.tanh(ent_emb))
+        ent_out, _ = self.ent_lstm(ent_out.unsqueeze(2))
+        ent_out = F.normalize(ent_out.squeeze(), p=2, dim=1)
 
-        clr_out = self.clr_linear(clr_conv_outs)
-        clr_out = F.normalize(clr_out, p=2)
+        subwords_out = self.swlr_linear(torch.tanh(sub_words_emb))
+        subwords_out, _ = self.swlr_lstm(subwords_out.unsqueeze(2))
+        subwords_out = F.normalize(subwords_out.squeeze(), p=2, dim=1)
 
-        subwords_out = self.swlr_linear(sub_words_emb)
-        subwords_out = F.normalize(subwords_out, p=2, dim=1)
-
-        tc_out = self.tc_linear(tc)
-        tc_out = F.normalize(tc_out, p=2, dim=1)
-
-        type_out = self.type_linear(type_embs)
-        type_out = F.normalize(type_out, p=2, dim=1)
+        tc = self.tc_linear(torch.tanh(tc))
+        tc_out, _ = self.tc_lstm(tc.unsqueeze(2))
+        tc_out = F.normalize(tc_out.squeeze(), p=2, dim=1)
 
         all_embs = torch.stack([ent_out, clr_out, subwords_out, tc_out], dim=1)
-        all_embs, _ = self.lstm(all_embs.permute(0, 2, 1))
-        all_embs = all_embs.permute(0, 2, 1)
         att_out = self.transformer_encoder(all_embs)
         att_out = att_out[:, 0, :]
         out = torch.matmul(att_out, type_out.T)
