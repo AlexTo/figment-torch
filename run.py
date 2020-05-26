@@ -49,7 +49,7 @@ def initialize():
     parser.add_argument("--sub_words_emb_dim", type=int, default=200, required=False)
     parser.add_argument("--tc_file", type=str, default="data/_tc.h5py", required=False)
     parser.add_argument("--clr_num_emb", type=int, default=83, required=False)
-    parser.add_argument("--clr_emb_dim", type=int, default=10, required=False)
+    parser.add_argument("--clr_emb_dim", type=int, default=16, required=False)
 
     args = parser.parse_args()
     torch.manual_seed(args.seed)

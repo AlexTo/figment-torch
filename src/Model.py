@@ -19,83 +19,60 @@ class FigmentModel(nn.Module):
         self.type_adj = type_adj
         self.type_embeddings = type_embeddings
 
-        self.clr_kernels = clr_kernels
         self.sub_words_emb = nn.Embedding(num_embeddings=sub_words_num_emb, embedding_dim=sub_words_emb_dim)
         self.sub_words_emb.weight = nn.Parameter(torch.from_numpy(sub_words_emb.value))
         self.sub_words_emb.weight.requires_grad = False
+        self.sub_words_attention = TransformerEncoder(TransformerEncoderLayer(d_model=sub_words_emb_dim, nhead=4), 2)
+        self.sub_words_linear = nn.Linear(sub_words_emb_dim, hidden_dim)
 
         self.clr_emb = nn.Embedding(num_embeddings=clr_num_emb, embedding_dim=clr_emb_dim)
         self.clr_emb.weight.data.uniform_(-w, w)
+        self.clr_attention = TransformerEncoder(TransformerEncoderLayer(d_model=clr_emb_dim, nhead=4), 2)
+        self.clr_linear = nn.Linear(clr_emb_dim, hidden_dim)
 
-        self.clr_convs = nn.ModuleList([nn.Conv2d(in_channels=1, out_channels=clr_out_channels,
-                                                  kernel_size=(k + 1, clr_emb_dim)) for k in clr_kernels])
-        for conv in self.clr_convs:
-            conv.weight.data.uniform_(-w / 2, w / 2)
-            conv.bias.data.fill_(0)
-        self.clr_max_pools = nn.ModuleList([nn.MaxPool2d(kernel_size=(clr_max_length - k, 1)) for k in clr_kernels])
+        self.ent_linear = nn.Linear(sub_words_emb_dim, hidden_dim)
+        self.init_linear(self.ent_linear, w)
 
-        self.clr_linear = nn.Linear(in_features=(clr_out_channels * len(clr_kernels)), out_features=hidden_dim)
-        self.clr_lstm = nn.LSTM(input_size=1, hidden_size=1, batch_first=True)
+        self.type_linear = nn.Linear(type_embedding_dim, hidden_dim)
+        self.init_linear(self.type_linear, w)
 
-        self.ent_lstm = nn.LSTM(input_size=1, hidden_size=1, batch_first=True)
-        self.ent_linear = nn.Linear(in_features=sub_words_emb_dim, out_features=hidden_dim)
-
-        self.swlr_lstm = nn.LSTM(input_size=sub_words_emb_dim, hidden_size=hidden_dim, batch_first=True)
-        self.swlr_linear = nn.Linear(in_features=sub_words_emb_dim, out_features=hidden_dim)
-
-        self.tc_lstm = nn.LSTM(input_size=1, hidden_size=1, batch_first=True)
-        self.tc_linear = nn.Linear(in_features=output_dim, out_features=hidden_dim)
-
-        self.type_linear = nn.Linear(in_features=type_embedding_dim, out_features=hidden_dim)
-        self.type_linear.weight.data.uniform_(-w / 2, w / 2)
-        self.type_linear.bias.data.fill_(0)
+        self.tc_linear = nn.Linear(output_dim, hidden_dim)
+        self.init_linear(self.tc_linear, w)
 
         self.gc1 = GraphConvolution(type_embedding_dim, type_embedding_dim)
         self.gc2 = GraphConvolution(type_embedding_dim, type_embedding_dim)
 
-        encoder_layers = TransformerEncoderLayer(d_model=hidden_dim, nhead=4)
-        self.transformer_encoder = TransformerEncoder(encoder_layers, 2)
+        self.all_embs_attention = TransformerEncoder(TransformerEncoderLayer(d_model=hidden_dim, nhead=4), 2)
+        self.final_linear = nn.Linear(hidden_dim, output_dim)
+
+    @staticmethod
+    def init_linear(linear, w):
+        linear.weight.data.uniform_(-w / 2, w / 2)
+        linear.bias.data.fill_(0)
 
     def forward(self, ent_emb, letters, sub_words, tc):
-
-        letters_emb = self.clr_emb(letters)
-        letters_emb = letters_emb.unsqueeze(1)
+        clr_emb = self.clr_emb(letters)
+        clr_out = self.clr_attention(clr_emb)
+        clr_out = F.normalize(self.clr_linear(clr_out[:, 0, :]), p=2, dim=1)
 
         sub_words_emb = self.sub_words_emb(sub_words).float()
-        # sub_words_emb = torch.mean(sub_words_emb, dim=1)
-
-        clr_conv_outs = []
-        for k in self.clr_kernels:
-            conv = self.clr_convs[k]
-            max_pool = self.clr_max_pools[k]
-            clr_out = torch.relu(max_pool(conv(letters_emb))).squeeze()
-            clr_conv_outs.append(clr_out)
-        clr_conv_outs = torch.cat(clr_conv_outs, dim=1)
-        clr_conv_outs = self.clr_linear(clr_conv_outs)
-        clr_out, _ = self.clr_lstm(clr_conv_outs.unsqueeze(2))
-        clr_out = F.normalize(clr_out.squeeze(), p=2, dim=1)
+        subwords_out = self.sub_words_attention(sub_words_emb)
+        subwords_out = F.normalize(self.sub_words_linear(subwords_out[:, 0, :]), p=2, dim=1)
 
         type_embs = self.gc1(self.type_embeddings, self.type_adj)
-        # type_embs = torch.dropout(type_embs, self.dropout, train=self.training)
         type_embs = self.gc2(type_embs, self.type_adj)  # 102 * 4096
-        # type_embs = torch.matmul(targets, type_embs)
         type_out = F.normalize(type_embs, p=2, dim=1)
 
         ent_out = self.ent_linear(ent_emb)
-        ent_out, _ = self.ent_lstm(ent_out.unsqueeze(2))
-        ent_out = F.normalize(ent_out.squeeze(), p=2, dim=1)
+        ent_out = F.normalize(ent_out, p=2, dim=1)
 
-        # subwords_out = self.swlr_linear(sub_words_emb)
-        subwords_out, _ = self.swlr_lstm(sub_words_emb)
-        subwords_out = F.normalize(subwords_out.mean(1).squeeze(), p=2, dim=1)
-
-        tc = self.tc_linear(tc)
-        tc_out, _ = self.tc_lstm(tc.unsqueeze(2))
-        tc_out = F.normalize(tc_out.squeeze(), p=2, dim=1)
+        tc_out = self.tc_linear(tc)
+        tc_out = F.normalize(tc_out, p=2, dim=1)
 
         all_embs = torch.stack([ent_out, clr_out, subwords_out, tc_out], dim=1)
-        att_out = self.transformer_encoder(all_embs)
+        att_out = self.all_embs_attention(all_embs)
         att_out = att_out[:, 0, :]
-        out = torch.mm(att_out, type_out.T)
+        # out = torch.mm(att_out, type_out.T)
+        out = self.final_linear(att_out)
         out = torch.sigmoid(out)
         return out
