@@ -40,7 +40,7 @@ class FigmentModel(nn.Module):
         self.ent_lstm = nn.LSTM(input_size=1, hidden_size=1, batch_first=True)
         self.ent_linear = nn.Linear(in_features=sub_words_emb_dim, out_features=hidden_dim)
 
-        self.swlr_lstm = nn.LSTM(input_size=1, hidden_size=1, batch_first=True)
+        self.swlr_lstm = nn.LSTM(input_size=sub_words_emb_dim, hidden_size=hidden_dim, batch_first=True)
         self.swlr_linear = nn.Linear(in_features=sub_words_emb_dim, out_features=hidden_dim)
 
         self.tc_lstm = nn.LSTM(input_size=1, hidden_size=1, batch_first=True)
@@ -62,7 +62,7 @@ class FigmentModel(nn.Module):
         letters_emb = letters_emb.unsqueeze(1)
 
         sub_words_emb = self.sub_words_emb(sub_words).float()
-        sub_words_emb = torch.mean(sub_words_emb, dim=1)
+        # sub_words_emb = torch.mean(sub_words_emb, dim=1)
 
         clr_conv_outs = []
         for k in self.clr_kernels:
@@ -71,7 +71,7 @@ class FigmentModel(nn.Module):
             clr_out = torch.relu(max_pool(conv(letters_emb))).squeeze()
             clr_conv_outs.append(clr_out)
         clr_conv_outs = torch.cat(clr_conv_outs, dim=1)
-        clr_conv_outs = self.clr_linear(torch.tanh(clr_conv_outs))
+        clr_conv_outs = self.clr_linear(clr_conv_outs)
         clr_out, _ = self.clr_lstm(clr_conv_outs.unsqueeze(2))
         clr_out = F.normalize(clr_out.squeeze(), p=2, dim=1)
 
@@ -81,15 +81,15 @@ class FigmentModel(nn.Module):
         # type_embs = torch.matmul(targets, type_embs)
         type_out = F.normalize(type_embs, p=2, dim=1)
 
-        ent_out = self.ent_linear(torch.tanh(ent_emb))
+        ent_out = self.ent_linear(ent_emb)
         ent_out, _ = self.ent_lstm(ent_out.unsqueeze(2))
         ent_out = F.normalize(ent_out.squeeze(), p=2, dim=1)
 
-        subwords_out = self.swlr_linear(torch.tanh(sub_words_emb))
-        subwords_out, _ = self.swlr_lstm(subwords_out.unsqueeze(2))
-        subwords_out = F.normalize(subwords_out.squeeze(), p=2, dim=1)
+        # subwords_out = self.swlr_linear(sub_words_emb)
+        subwords_out, _ = self.swlr_lstm(sub_words_emb)
+        subwords_out = F.normalize(subwords_out.mean(1).squeeze(), p=2, dim=1)
 
-        tc = self.tc_linear(torch.tanh(tc))
+        tc = self.tc_linear(tc)
         tc_out, _ = self.tc_lstm(tc.unsqueeze(2))
         tc_out = F.normalize(tc_out.squeeze(), p=2, dim=1)
 
