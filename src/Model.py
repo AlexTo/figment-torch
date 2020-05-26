@@ -96,6 +96,6 @@ class FigmentModel(nn.Module):
         all_embs = torch.stack([ent_out, clr_out, subwords_out, tc_out], dim=1)
         att_out = self.transformer_encoder(all_embs)
         att_out = att_out[:, 0, :]
-        out = torch.matmul(att_out, type_out.T)
+        out = torch.mm(att_out, type_out.T)
         out = torch.sigmoid(out)
         return out
