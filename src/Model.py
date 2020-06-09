@@ -10,12 +10,12 @@ class FigmentModel(nn.Module):
     def __init__(self, sub_words_emb_file, sub_words_num_emb, sub_words_emb_dim, clr_num_emb,
                  clr_emb_dim, type_adj, type_embeddings, n_units, n_heads, dropout, attn_dropout,
                  instance_normalization, diag, clr_max_length=30, clr_out_channels=50, clr_kernels=range(7),
-                 all_embs_dim=852, hidden_dim=512, type_embedding_dim=512, gcn_hidden_dim=2048, output_dim=102,
-                 w=0.08):
+                 all_embs_dim=852, pred_embs_dim=4096, hidden_dim=640, type_embedding_dim=512, gcn_hidden_dim=2048,
+                 output_dim=102, w=0.08):
         super(FigmentModel, self).__init__()
         sub_words_emb = h5py.File(sub_words_emb_file, 'r')
         sub_words_emb = sub_words_emb['vectors']
-        self.dropout = dropout
+        self.dropout = nn.Dropout(p=dropout)
         self.type_adj = type_adj
         self.type_embeddings = type_embeddings
 
@@ -38,6 +38,10 @@ class FigmentModel(nn.Module):
         self.ent_linear.weight.data.uniform_(-w / 2, w / 2)
         self.ent_linear.bias.data.fill_(0)
 
+        self.pred_linear = nn.Linear(in_features=pred_embs_dim, out_features=hidden_dim)
+        self.pred_linear.weight.data.uniform_(-w / 2, w / 2)
+        self.pred_linear.bias.data.fill_(0)
+
         self.swlr_linear = nn.Linear(in_features=sub_words_emb_dim, out_features=hidden_dim)
         self.swlr_linear.weight.data.uniform_(-w / 2, w / 2)
         self.swlr_linear.bias.data.fill_(0)
@@ -57,15 +61,14 @@ class FigmentModel(nn.Module):
         self.gc1 = GraphConvolution(type_embedding_dim, type_embedding_dim)
         self.gc2 = GraphConvolution(type_embedding_dim, type_embedding_dim)
 
-        self.lstm = nn.LSTM(input_size=4, hidden_size=4, batch_first=True)
+        self.lstm = nn.LSTM(input_size=5, hidden_size=5, batch_first=True)
 
-        encoder_layers = TransformerEncoderLayer(d_model=hidden_dim, nhead=4)
-        self.transformer_encoder = TransformerEncoder(encoder_layers, 4)
+        encoder_layers = TransformerEncoderLayer(d_model=hidden_dim, nhead=5)
+        self.transformer_encoder = TransformerEncoder(encoder_layers, 1)
 
         self.final_linear = nn.Linear(in_features=hidden_dim, out_features=output_dim)
 
-    def forward(self, ent_emb, letters, sub_words, tc):
-
+    def forward(self, ent_emb, pred_emb, letters, sub_words, tc):
         letters_emb = self.clr_emb(letters)
         letters_emb = torch.unsqueeze(letters_emb, 1)
         sub_words_emb = self.sub_words_emb(sub_words).float()
@@ -84,21 +87,29 @@ class FigmentModel(nn.Module):
         # type_embs = torch.matmul(targets, type_embs)
 
         ent_out = self.ent_linear(ent_emb)
+        ent_out = self.dropout(ent_out)
         ent_out = F.normalize(ent_out, p=2, dim=1)
 
+        pred_out = self.pred_linear(pred_emb)
+        pred_out = self.dropout(pred_out)
+        pred_out = F.normalize(pred_out, p=2)
+
         clr_out = self.clr_linear(clr_conv_outs)
+        clr_out = self.dropout(clr_out)
         clr_out = F.normalize(clr_out, p=2)
 
         subwords_out = self.swlr_linear(sub_words_emb)
+        subwords_out = self.dropout(subwords_out)
         subwords_out = F.normalize(subwords_out, p=2, dim=1)
 
         tc_out = self.tc_linear(tc)
+        tc_out = self.dropout(tc_out)
         tc_out = F.normalize(tc_out, p=2, dim=1)
 
         type_out = self.type_linear(type_embs)
         type_out = F.normalize(type_out, p=2, dim=1)
 
-        all_embs = torch.stack([ent_out, clr_out, subwords_out, tc_out], dim=1)
+        all_embs = torch.stack([ent_out, pred_out, clr_out, subwords_out, tc_out], dim=1)
         all_embs, _ = self.lstm(all_embs.permute(0, 2, 1))
         all_embs = all_embs.permute(0, 2, 1)
         att_out = self.transformer_encoder(all_embs)

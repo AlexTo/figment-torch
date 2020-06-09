@@ -1,10 +1,12 @@
 import h5py
 from torch.utils.data import Dataset
+import pandas as pd
+import numpy as np
 
 
 class FigmentDataset(Dataset):
-    def __init__(self, target_file, ent_emb_file, letters_file, sub_words_file, types_cosine_file, split="train",
-                 split_indices=[303798, 344018], letters_max_len=30, sub_words_max_len=4):
+    def __init__(self, target_file, ent_emb_file, letters_file, sub_words_file, types_cosine_file, pred_emb_file,
+                 split="train", split_indices=[303798, 344018], letters_max_len=30, sub_words_max_len=4):
         self.letters_max_len = letters_max_len
         self.sub_words_max_len = sub_words_max_len
         targets = h5py.File(target_file, 'r')
@@ -18,6 +20,7 @@ class FigmentDataset(Dataset):
         self.letters_ds = letters['letters']
         self.sub_words_ds = sub_words['subwords']
         self.types_cosine_ds = types_cosine['tc']
+        self.pred_emb = pd.read_pickle(pred_emb_file.format(split=split)).to_numpy()
 
         if split == "train":
             self.targets_ds = self.targets_ds[:split_indices[0], :]
@@ -48,4 +51,5 @@ class FigmentDataset(Dataset):
         sub_words = self.sub_words_ds[item, :self.sub_words_max_len]
         tc = self.types_cosine_ds[item]
         target = self.targets_ds[item]
-        return ent_emb, letters, sub_words, tc, target
+        pred_emb = self.pred_emb[item]
+        return ent_emb, pred_emb, letters, sub_words, tc, target
