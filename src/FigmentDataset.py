@@ -1,7 +1,7 @@
 import h5py
-from torch.utils.data import Dataset
 import pandas as pd
 import numpy as np
+from torch.utils.data import Dataset
 
 
 class FigmentDataset(Dataset):
@@ -20,7 +20,8 @@ class FigmentDataset(Dataset):
         self.letters_ds = letters['letters']
         self.sub_words_ds = sub_words['subwords']
         self.types_cosine_ds = types_cosine['tc']
-        self.pred_emb = pd.read_pickle(pred_emb_file.format(split=split)).to_numpy()
+        self.pred_emb = pd.read_csv(pred_emb_file.format(split=split), header=None).to_numpy()
+        self.pred_emb = self.pred_emb[:, 1:].astype(np.long)
 
         if split == "train":
             self.targets_ds = self.targets_ds[:split_indices[0], :]

@@ -19,9 +19,9 @@ def initialize():
     parser = argparse.ArgumentParser()
     parser.add_argument("--cuda", action="store_false")
     parser.add_argument("--seed", type=int, default=23455, required=False)
-    parser.add_argument("--batch_size", type=int, default=100, required=False)
-    parser.add_argument("--epochs", type=int, default=20, required=False)
-    parser.add_argument("--lr", type=float, default=0.001)
+    parser.add_argument("--batch_size", type=int, default=1000, required=False)
+    parser.add_argument("--epochs", type=int, default=100, required=False)
+    parser.add_argument("--lr", type=float, default=0.008)
     parser.add_argument("--momentum", type=float, default=0.9)
     parser.add_argument("--weight_decay", type=float, default=1e-06)
     parser.add_argument("--clip", type=float, default=1.0)
@@ -51,7 +51,7 @@ def initialize():
     parser.add_argument("--tc_file", type=str, default="data/_tc.h5py", required=False)
     parser.add_argument("--clr_num_emb", type=int, default=83, required=False)
     parser.add_argument("--clr_emb_dim", type=int, default=10, required=False)
-    parser.add_argument("--pred_emb_file", type=str, default="data/{split}_pred_embeddings.pickle", required=False)
+    parser.add_argument("--pred_emb_file", type=str, default="data/{split}_pred_idx.csv", required=False)
 
     args = parser.parse_args()
     torch.manual_seed(args.seed)
@@ -72,7 +72,8 @@ def evaluate(model, loader, device, criterion):
         for ent_emb, pred_emb, letters, sub_words, tc, targets in loader:
             batches += 1
             ent_emb, pred_emb, letters, sub_words, tc, targets = \
-                ent_emb.to(device), pred_emb.float().to(device), letters.to(torch.int64).to(device), sub_words.to(
+                ent_emb.to(device), pred_emb.to(torch.int64).to(device), letters.to(torch.int64).to(
+                    device), sub_words.to(
                     torch.int64).to(device), tc.to(device), targets.float().to(device)
             outputs = model(ent_emb, pred_emb, letters, sub_words, tc)
             batch_loss = criterion(outputs, targets)
@@ -112,23 +113,23 @@ def train(args, device):
                          args.clr_emb_dim, type_adj, type_embeddings, n_units, n_heads, args.dropout, args.attn_dropout,
                          args.instance_normalization, args.diag).to(device)
 
-    if os.path.exists('output/model_0.0200.pt'):
-        model.load_state_dict(torch.load('output/model_0.0200.pt'))
+    # if os.path.exists('output/model_0.0215.pt'):
+    #   model.load_state_dict(torch.load('output/model_0.0215.pt'))
 
     # optimizer = optim.RMSprop(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    optimizer = optim.SGD(model.parameters(), lr=args.lr, weight_decay=args.weight_decay, momentum=args.momentum)
+    # optimizer = optim.SGD(model.parameters(), lr=args.lr, weight_decay=args.weight_decay, momentum=args.momentum)
     # optimizer = optim.Adagrad(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    # optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     criterion = nn.BCELoss()
     bar = trange(0, args.epochs, desc="Training")
     dev_loss = np.nan
     best_dev_loss = 10
-    scheduler = StepLR(optimizer, step_size=5, gamma=0.2)
+    scheduler = StepLR(optimizer, step_size=5, gamma=0.5)
     for _ in bar:
         model.train()
         for ent_emb, pred_emb, letters, sub_words, tc, targets in train_loader:
             ent_emb, pred_emb, letters, sub_words, tc, targets = \
-                ent_emb.to(device), pred_emb.float().to(device), letters.to(torch.int64).to(device), \
+                ent_emb.to(device), pred_emb.to(torch.int64).to(device), letters.to(torch.int64).to(device), \
                 sub_words.to(torch.int64).to(device), tc.to(device), targets.float().to(device)
             optimizer.zero_grad()
             outputs = model(ent_emb, pred_emb, letters, sub_words, tc)
@@ -177,7 +178,7 @@ def write_outputs(args, device, model_file, split='dev'):
     with torch.no_grad():
         for ent_emb, pred_emb, letters, sub_words, tc, targets in loader:
             ent_emb, pred_emb, letters, sub_words, tc, targets = \
-                ent_emb.to(device), pred_emb.float().to(device), letters.to(torch.int64).to(device), \
+                ent_emb.to(device), pred_emb.to(torch.int64).to(device), letters.to(torch.int64).to(device), \
                 sub_words.to(torch.int64).to(device), tc.to(device), targets.float().to(device)
 
             output = model(ent_emb, pred_emb, letters, sub_words, tc)
